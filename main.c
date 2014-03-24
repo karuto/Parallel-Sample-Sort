@@ -38,18 +38,21 @@
 #include "timer.h"
 
 #define BARRIER_COUNT 1000
-// pthread_barrier_t barrier;
 
+// Synchronization tools
+int barrier_thread_count = 0;
+pthread_mutex_t barrier_mutex;
+pthread_cond_t ok_to_proceed;
+
+// Function headers
 void Usage(char* prog_name);
 void Print_list(int *l, int size, char *name);
 void *Thread_work(void* rank);
 
-
-int i;
-int thread_count, sample_size, list_size;
-char *input_file;
-
+// Global variables
+int i, thread_count, sample_size, list_size;
 int *list, *sample_keys;
+char *input_file;
 
 /*--------------------------------------------------------------------*/
 int main(int argc, char* argv[]) {
@@ -69,12 +72,16 @@ int main(int argc, char* argv[]) {
   	list_size = strtol(argv[3], NULL, 10);
   	input_file = argv[4];
   }
-  
+
   // Allocate memory for variables
   thread_handles = malloc(thread_count*sizeof(pthread_t));
   list = malloc(list_size * sizeof(int));
   sample_keys = malloc(sample_size * sizeof(int));
-  // pthread_barrier_init(&barrier, NULL, thread_count);
+  
+
+  pthread_mutex_init(&barrier_mutex, NULL);
+  pthread_cond_init(&ok_to_proceed, NULL);
+  
 
   // Read list content from input
   FILE *fp = fopen(input_file, "r+");
@@ -102,8 +109,10 @@ int main(int argc, char* argv[]) {
   // printf("Elapsed time = %e seconds\n", finish - start);
 
 
-  // pthread_barrier_destroy(&barrier);
+  pthread_mutex_destroy(&barrier_mutex);
+  pthread_cond_destroy(&ok_to_proceed);
   free(thread_handles);
+  
   return 0;
 }  /* main */
 
@@ -148,7 +157,7 @@ void Print_list(int *l, int size, char *name) {
  */
 void *Thread_work(void* rank) {
   long my_rank = (long) rank;
-  int i, seed, index, local_chunk_size, local_sample_size;
+  int i, seed, dup, index, local_chunk_size, local_sample_size;
 
   local_chunk_size = list_size / thread_count;
   local_sample_size = sample_size / thread_count;
@@ -157,12 +166,54 @@ void *Thread_work(void* rank) {
   
   // Get sample keys randomly from original list
   srandom(my_rank + 1);  
+  
   for (i = 0; i < local_sample_size; i++) {
 	index = my_rank * local_sample_size + i;
 	seed = (my_rank * local_chunk_size) + (random() % local_chunk_size);
   	printf("Thread %ld, index = %d, key = %d\n", my_rank, index, list[seed]);
-	sample_keys[index] = list[seed];
+	
+	dup = 0;
+	// Make sure this sample key is not already in the list
+	for (int i = 0; i < local_sample_size; i++) {
+		if (sample_keys[index+i] == list[seed]) {
+			// If it already exists in [my section of] sample keys...
+			// decrease the counter and start over
+			i--;
+			dup = 1;
+		}
+	}
+	// Up to this point we can put it into [unsorted] sample keys
+	if (dup != 1) {
+	    sample_keys[index] = list[seed];
+	}
+	
   }
+  
+  // Parallel count sort the sample keys
+  
+  
+  
+  /*
+  for (i = 0; i < BARRIER_COUNT; i++) {
+     pthread_mutex_lock(&barrier_mutex);
+     barrier_thread_count++;
+     if (barrier_thread_count == thread_count) {
+       barrier_thread_count = 0;
+       pthread_cond_broadcast(&ok_to_proceed);
+     } else {
+       // Wait unlocks mutex and puts thread to sleep.
+       //    Put wait in while loop in case some other
+       // event awakens thread.
+       while (pthread_cond_wait(&ok_to_proceed,
+                 &barrier_mutex) != 0);
+       // Mutex is relocked at this point.
+     }
+     pthread_mutex_unlock(&barrier_mutex);
+  }
+  */
+  
+  
+  
   
 
   return NULL;
