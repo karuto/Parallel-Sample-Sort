@@ -3,7 +3,7 @@
  *
  * Purpose:    A C program using Pthreads to implement sample sort algorithm.
  *
- * Compile:    gcc -g -Wall main -o main.c
+ * Compile:    gcc -g -Wall main.c -o main
  * Run:        main [number of threads] [sample keys' size] [list size]  
  *                       [input file] [Optional suppress output(n)]
  *
