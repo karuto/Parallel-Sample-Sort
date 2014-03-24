@@ -288,9 +288,12 @@ void *Thread_work(void* rank) {
   for (i = 0; i < thread_count; i++) {
 	  // offset = i * local_chunk_size + prefix_dist[i, my_rank-1];
 	  // offset = (i_manual * local_chunk_size) + prefix_dist[i*thread_count + my_rank-1];
-	  offset = (i * local_chunk_size) + prefix_dist[i*thread_count + my_rank-1];
+	  
 	  if (my_rank == 0) {
+		  offset = (i * local_chunk_size);
 		  printf("@@@ Thread %ld, prefix_dist = %d, i = %d, offset = %d\n", my_rank, prefix_dist[i*thread_count + my_rank-1], i, offset);	  	
+	  } else {
+	  	  offset = (i * local_chunk_size) + prefix_dist[i*thread_count + my_rank-1];
 	  }
 	  
 	  if (raw_dist[i*thread_count + my_rank] != 0) {
@@ -340,7 +343,7 @@ int main(int argc, char* argv[]) {
   pthread_t* thread_handles; 
   double start, finish;
 
-  suppress_output == 0;
+  suppress_output = 0;
   // for (int i = 0; i < argc; ++i){
   //   printf("Command line args === argv[%d]: %s\n", i, argv[i]);
   // }  
