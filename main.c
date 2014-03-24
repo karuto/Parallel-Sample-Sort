@@ -52,7 +52,7 @@ void *Thread_work(void* rank);
 
 // Global variables
 int i, thread_count, sample_size, list_size;
-int *list, *sample_keys, *sorted_keys, *splitters;
+int *list, *sample_keys, *sorted_keys, *splitters, *sorted_list;
 int *raw_dist, *prefix_dist, *col_dist, *prefix_col_dist;
 char *input_file;
 
@@ -272,7 +272,42 @@ void *Thread_work(void* rank) {
 		  }
 	  }
   }
-
+  
+  // Reassemble the partially sorted list, prepare for retrieval
+  for (i = 0; i < local_chunk_size; i++) {
+	  sorted_list[local_pointer + i] = local_data[i];
+  }
+  
+  // Ensure all threads have reached this point, and then let continue
+  pthread_barrier_wait(&barrier);
+  
+  // Reassemble each thread's partially sorted list based on buckets
+  int my_first_D;
+  if (col_sum == 0) {
+	  my_first_D = 0;
+  } else {
+	  my_first_D = prefix_col_dist[my_rank-1];
+  }
+  int *my_D = malloc(my_first_D * sizeof(int));
+  
+  int b_index = 0;
+  for (i = 0; i < thread_count; i++) {
+	  // offset = i * local_chunk_size + prefix_dist[i, my_rank-1];
+	  offset = i * local_chunk_size + prefix_dist[i*thread_count + my_rank-1];
+	  for (j = 0; j < raw_dist[i*thread_count + my_rank]; j++) {
+		  my_D[b_index++] = sorted_list[offset + j];
+		  // printf("### Thread %ld, elem = %d\n", my_rank, sorted_list[offset + j]);
+	  }
+  }
+  // Quick sort on local bucket
+  qsort(my_D, my_first_D, sizeof(int), Int_comp);
+  
+  // Ensure all threads have reached this point, and then let continue
+  pthread_barrier_wait(&barrier);
+  
+  Print_list(my_D, my_first_D, "Thread (partially sorted)");
+  
+  
   return NULL;
 }  /* Thread_work */
 
@@ -300,6 +335,7 @@ int main(int argc, char* argv[]) {
   // Allocate memory for variables
   thread_handles = malloc(thread_count*sizeof(pthread_t));
   list = malloc(list_size * sizeof(int));
+  sorted_list = malloc(list_size * sizeof(int));
   sample_keys = malloc(sample_size * sizeof(int));
   sorted_keys = malloc(sample_size * sizeof(int));
   splitters = malloc(thread_count * sizeof(int));
@@ -344,6 +380,7 @@ int main(int argc, char* argv[]) {
   Print_list(prefix_dist, thread_count * thread_count, "Prefix dist");
   Print_list(col_dist, thread_count, "Colsum dist");
   Print_list(prefix_col_dist, thread_count, "Prefix colsum dist");
+  Print_list(sorted_list, list_size, "List (partially sorted)");
   
   // printf("Elapsed time = %e seconds\n", finish - start);
 
