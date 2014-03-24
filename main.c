@@ -41,26 +41,25 @@
 // pthread_barrier_t barrier;
 
 void Usage(char* prog_name);
-void print_list(int *l, int size, char *name);
+void Print_list(int *l, int size, char *name);
 void *Thread_work(void* rank);
 
-int thread_count;
-int sample_size;
-int list_size;
+
+int i;
+int thread_count, sample_size, list_size;
 char *input_file;
 
 int *list, *sample_keys;
 
 /*--------------------------------------------------------------------*/
 int main(int argc, char* argv[]) {
-  int i;
   long thread;
   pthread_t* thread_handles; 
   double start, finish;
 
-  for (int i = 0; i < argc; ++i){
-    printf("Command line args === argv[%d]: %s\n", i, argv[i]);
-  }  
+  // for (int i = 0; i < argc; ++i){
+  //   printf("Command line args === argv[%d]: %s\n", i, argv[i]);
+  // }  
 
   if (argc != 5) { 
 	Usage(argv[0]);
@@ -70,21 +69,22 @@ int main(int argc, char* argv[]) {
   	list_size = strtol(argv[3], NULL, 10);
   	input_file = argv[4];
   }
-
+  
+  // Allocate memory for variables
   thread_handles = malloc(thread_count*sizeof(pthread_t));
+  list = malloc(list_size * sizeof(int));
+  sample_keys = malloc(sample_size * sizeof(int));
   // pthread_barrier_init(&barrier, NULL, thread_count);
 
-  // Read list from input
+  // Read list content from input
   FILE *fp = fopen(input_file, "r+");
-  list = malloc(list_size * sizeof(int));
   for (i = 0; i < list_size; i++) {
   	  if (!fscanf(fp, "%d", &list[i])) {
     	  break;
       }
   }
-
-
-
+  Print_list(list, list_size, "original list");
+  
   GET_TIME(start);
   
   for (thread = 0; thread < thread_count; thread++)
@@ -104,6 +104,7 @@ int main(int argc, char* argv[]) {
 }  /* main */
 
 
+
 /*--------------------------------------------------------------------
  * Function:    Usage
  * Purpose:     Print command line for function and terminate
@@ -115,15 +116,24 @@ void Usage(char* prog_name) {
   exit(0);
 }  /* Usage */
 
-void print_list(int *l, int size, char *name) {
-    printf("\n==== ");
-    printf("&s", name);
-    printf(" ==== \n");
+
+
+/*--------------------------------------------------------------------
+ * Function:    Print_list
+ * Purpose:     Print list in formatted fashion
+ * In arg:      l, size, name
+ */
+void Print_list(int *l, int size, char *name) {
+    printf("\n======= ");
+    printf("%s", name);
+    printf(" ======= \n");
     for (i = 0; i < size; i++) {
     	  printf("%d ", list[i]);
     }
     printf("\n\n");
-}  /* print_list */
+}  /* Print_list */
+
+
 
 /*-------------------------------------------------------------------
  * Function:    Thread_work
@@ -133,14 +143,21 @@ void print_list(int *l, int size, char *name) {
  * Return val:  Ignored
  */
 void *Thread_work(void* rank) {
-// long my_rank = (long) rank; 
-  int i;
+  long my_rank = (long) rank;
+  int i, seed, local_chunk_size, local_sample_size;
 
-  for (i = 0; i < BARRIER_COUNT; i++) {
-    // pthread_barrier_wait(&barrier);
+  local_chunk_size = list_size / thread_count;
+  local_sample_size = sample_size / thread_count;
+  
+  printf("Hi this is thread %ld, I have %d chunks and should do %d samples. \n", my_rank, local_chunk_size, local_sample_size);
+  
+  // Get sample keys randomly from original list
+  srandom(my_rank + 1);  
+  for (i = 0; i < local_sample_size; i++) {
+	seed = (my_rank * local_chunk_size) + (random() % local_chunk_size);
+  	printf("Random of thread %ld = %d\n", my_rank, seed);
   }
-   
-  printf("Hi this is %d\n", 1);
+  
 
   return NULL;
 }  /* Thread_work */
