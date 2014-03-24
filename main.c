@@ -127,7 +127,7 @@ int Int_comp(const void * a,const void * b) {
 void *Thread_work(void* rank) {
   long my_rank = (long) rank;
   int i, j, seed, index, offset, local_chunk_size, local_sample_size;
-  int local_pointer, s_index;
+  int local_pointer, s_index, my_segment;
   int *local_data;
 
   local_chunk_size = list_size / thread_count;
@@ -193,15 +193,16 @@ void *Thread_work(void* rank) {
 	  j++;
   }
   
-  // Quick sort
+  // Quick sort on local data before splitting into buckets
   qsort(local_data, local_chunk_size, sizeof(int), Int_comp);
   
-  // Generate the original distribution array
-  s_index = 1;	// index in the splitter array
+  // index in the splitter array
+  s_index = 1;	
+  // starting point of this thread's segment in dist arrays
+  my_segment = my_rank * thread_count; 
+  
+  // Generate the original distribution array, loop through each local entry
   for (i = 0; i < local_chunk_size; i++) {
-	  
-	  // printf("##### Thread %ld, i = %d, s_index = %d. COMPARE s[%d] x d[%d]\n", my_rank, i, s_index, splitters[s_index], local_data[i]);
-	  
 	  if (local_data[i] < splitters[s_index]) {
 		  // If current elem lesser than current splitter
 		  // That means it's within this bucket's range, keep looping
@@ -213,14 +214,26 @@ void *Thread_work(void* rank) {
 			  s_index++;
 		  }
 	  }
-	  // printf("##### Thread %ld, i = %d, s_index = %d, raw_dist[%ld]\n", my_rank, i, s_index, (my_rank * thread_count) + s_index);
-	  raw_dist[(my_rank * thread_count) + s_index-1]++;
+	  // Add to the raw distribution array, -1 because splitter[0] = 0
+	  raw_dist[my_segment + s_index-1]++;
+  }
+  
+  // Generate prefix sum distribution array 
+  // (NOTE: does not need to wait for the whole raw_dist to finish, thus no barrier)
+  // For the specific section that this thread is in charge of...
+  // +1 initially because we don't process the first element at all
+  for (i = my_segment; i < (my_segment + thread_count); i++) {
+	  if (i == my_segment) {
+		  prefix_dist[i] = raw_dist[i];	 
+		  // printf("Thread %ld ### i = %d, prefix_dist[i] = %d, raw_dist[i] = %d\n", my_rank, i, prefix_dist[i], raw_dist[i]); 	
+	  } else {
+		  prefix_dist[i] = raw_dist[i] + prefix_dist[i - 1];
+		  // printf("Thread %ld ### i = %d, prefix_dist[i] = %d, raw_dist[i] = %d , raw_dist[i-1] = %d\n", my_rank, i, prefix_dist[i], raw_dist[i], raw_dist[i - 1]);
+	  }
   }
   
   // Ensure all threads have reached this point, and then let continue
   pthread_barrier_wait(&barrier);
-  
-
   
   
   
@@ -291,10 +304,11 @@ int main(int argc, char* argv[]) {
   
   GET_TIME(finish);
   
-  // Print_list(sample_keys, sample_size, "sample keys (unsorted)");
-  Print_list(sorted_keys, sample_size, "sample keys (sorted)");
-  Print_list(splitters, thread_count, "splitters");
+  // Print_list(sample_keys, sample_size, "Sample keys (unsorted)");
+  Print_list(sorted_keys, sample_size, "Sample keys (sorted)");
+  Print_list(splitters, thread_count, "Splitters");
   Print_list(raw_dist, thread_count * thread_count, "Raw dist");
+  Print_list(prefix_dist, thread_count * thread_count, "Prefix dist");
   
   // printf("Elapsed time = %e seconds\n", finish - start);
 
