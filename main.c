@@ -53,7 +53,7 @@ void *Thread_work(void* rank);
 // Global variables
 int i, thread_count, sample_size, list_size;
 int *list, *sample_keys, *sorted_keys, *splitters;
-int *raw_dist;
+int *raw_dist, *prefix_dist, *col_dist, *prefix_col_dist;
 char *input_file;
 
 
@@ -152,6 +152,7 @@ void *Thread_work(void* rank) {
 	  // printf("T%ld, index = %d, i = %d, key = %d, LCS = %d\n\n", my_rank, index, i, list[seed], local_sample_size);
   }
   
+  // Ensure all threads have reached this point, and then let continue
   pthread_barrier_wait(&barrier);
   
   // Parallel count sort the sample keys
@@ -170,6 +171,7 @@ void *Thread_work(void* rank) {
 	  sorted_keys[myindex] = mykey;
   }
   
+  // Ensure all threads have reached this point, and then let continue
   pthread_barrier_wait(&barrier);
   
   // Besides thread 0, every thread generates a splitter
@@ -178,6 +180,7 @@ void *Thread_work(void* rank) {
 	  splitters[my_rank] = (sorted_keys[offset] + sorted_keys[offset-1]) / 2;
   }
   
+  // Ensure all threads have reached this point, and then let continue
   pthread_barrier_wait(&barrier);
 
   // Using block partition to retrieve and sort local chunk
@@ -189,38 +192,32 @@ void *Thread_work(void* rank) {
 	  local_data[j] = list[i];
 	  j++;
   }
-  // Print_list(local_data, local_chunk_size, "Thread sublist (unsorted)");
-  
-  pthread_barrier_wait(&barrier);
   
   // Quick sort
   qsort(local_data, local_chunk_size, sizeof(int), Int_comp);
-  
-  printf("========= Thread %ld\n", my_rank);
-  Print_list(local_data, local_chunk_size, "Thread sublist (sorted)");
-
-  pthread_barrier_wait(&barrier);
   
   // Generate the original distribution array
   s_index = 1;	// index in the splitter array
   for (i = 0; i < local_chunk_size; i++) {
 	  
-	  printf("##### Thread %ld, i = %d, s_index = %d. COMPARE s[%d] x d[%d]\n", my_rank, i, s_index, splitters[s_index], local_data[i]);
+	  // printf("##### Thread %ld, i = %d, s_index = %d. COMPARE s[%d] x d[%d]\n", my_rank, i, s_index, splitters[s_index], local_data[i]);
 	  
 	  if (local_data[i] < splitters[s_index]) {
 		  // If current elem lesser than current splitter
 		  // That means it's within this bucket's range, keep looping
 	  } else {
 		  // Elem is out of bucket's range, time to increase splitter
-		  // Increase until you find one that fits
+		  // Keep increasing until you find one that fits
+		  // Also make sure if equals we still increment
 		  while (s_index < thread_count && local_data[i] >= splitters[s_index]) {
 			  s_index++;
 		  }
 	  }
-	  printf("##### Thread %ld, i = %d, s_index = %d, raw_dist[%ld]\n", my_rank, i, s_index, (my_rank * thread_count) + s_index);
+	  // printf("##### Thread %ld, i = %d, s_index = %d, raw_dist[%ld]\n", my_rank, i, s_index, (my_rank * thread_count) + s_index);
 	  raw_dist[(my_rank * thread_count) + s_index-1]++;
   }
-
+  
+  // Ensure all threads have reached this point, and then let continue
   pthread_barrier_wait(&barrier);
   
 
@@ -263,13 +260,17 @@ int main(int argc, char* argv[]) {
   
   // One dimensional distribution arrays
   raw_dist = malloc(thread_count * thread_count * sizeof(int));
-
+  col_dist = malloc(thread_count * thread_count * sizeof(int));
+  prefix_dist = malloc(thread_count * thread_count * sizeof(int));
+  prefix_col_dist = malloc(thread_count * thread_count * sizeof(int));
+  
+	
   // pthread_mutex_init(&barrier_mutex, NULL);
   // pthread_cond_init(&ok_to_proceed, NULL);
   pthread_barrier_init(&barrier, NULL, thread_count);
   
 
-  // Read list content from input
+  // Read list content from input file
   FILE *fp = fopen(input_file, "r+");
   for (i = 0; i < list_size; i++) {
   	  if (!fscanf(fp, "%d", &list[i])) {
