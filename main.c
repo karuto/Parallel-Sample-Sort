@@ -127,7 +127,7 @@ int Int_comp(const void * a,const void * b) {
 void *Thread_work(void* rank) {
   long my_rank = (long) rank;
   int i, j, seed, index, offset, local_chunk_size, local_sample_size;
-  int local_pointer, s_index, my_segment;
+  int local_pointer, s_index, my_segment, col_sum;
   int *local_data;
 
   local_chunk_size = list_size / thread_count;
@@ -235,10 +235,43 @@ void *Thread_work(void* rank) {
   // Ensure all threads have reached this point, and then let continue
   pthread_barrier_wait(&barrier);
   
+  // Generate column distribution array 
+  // For the specific section that this thread is in charge of...
+  // +1 initially because we don't process the first element at all
+  for (i = my_segment; i < (my_segment + thread_count); i++) {
+	  if (i == my_segment) {
+		  prefix_dist[i] = raw_dist[i];	 
+		  // printf("Thread %ld ### i = %d, prefix_dist[i] = %d, raw_dist[i] = %d\n", my_rank, i, prefix_dist[i], raw_dist[i]); 	
+	  } else {
+		  prefix_dist[i] = raw_dist[i] + prefix_dist[i - 1];
+		  // printf("Thread %ld ### i = %d, prefix_dist[i] = %d, raw_dist[i] = %d , raw_dist[i-1] = %d\n", my_rank, i, prefix_dist[i], raw_dist[i], raw_dist[i - 1]);
+	  }
+  }
   
+  // Ensure all threads have reached this point, and then let continue
+  pthread_barrier_wait(&barrier);
   
+  // Generate column sum distribution, each thread responsible for one column
+  col_sum = 0;
+  for (i = 0; i < thread_count; i++) {
+	  col_sum += raw_dist[my_rank + i * thread_count];
+  }
+  col_dist[my_rank] = col_sum;
   
+  // Ensure all threads have reached this point, and then let continue
+  pthread_barrier_wait(&barrier);
   
+  // Generate prefix column sum distribution, each thread responsible for one column
+  // This step is very risky to conduct parallelly, I decided to not do that
+  if (my_rank == 0) {
+	  for (i = 0; i < thread_count; i++) {
+		  if (i == 0) {
+		  	prefix_col_dist[i] = col_dist[i];
+		  } else {
+		  	prefix_col_dist[i] = col_dist[i] + prefix_col_dist[i - 1];
+		  }
+	  }
+  }
 
   return NULL;
 }  /* Thread_work */
@@ -273,9 +306,9 @@ int main(int argc, char* argv[]) {
   
   // One dimensional distribution arrays
   raw_dist = malloc(thread_count * thread_count * sizeof(int));
-  col_dist = malloc(thread_count * thread_count * sizeof(int));
+  col_dist = malloc(thread_count * sizeof(int));
   prefix_dist = malloc(thread_count * thread_count * sizeof(int));
-  prefix_col_dist = malloc(thread_count * thread_count * sizeof(int));
+  prefix_col_dist = malloc(thread_count * sizeof(int));
   
 	
   // pthread_mutex_init(&barrier_mutex, NULL);
@@ -309,6 +342,8 @@ int main(int argc, char* argv[]) {
   Print_list(splitters, thread_count, "Splitters");
   Print_list(raw_dist, thread_count * thread_count, "Raw dist");
   Print_list(prefix_dist, thread_count * thread_count, "Prefix dist");
+  Print_list(col_dist, thread_count, "Colsum dist");
+  Print_list(prefix_col_dist, thread_count, "Prefix colsum dist");
   
   // printf("Elapsed time = %e seconds\n", finish - start);
 
