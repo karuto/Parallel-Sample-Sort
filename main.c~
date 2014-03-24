@@ -84,8 +84,7 @@ void Print_list(int *l, int size, char *name) {
  * In arg:      seed, offset, range
  */
 int Is_used(int seed, int offset, int range) {
-  int i;
-	for (i = offset; i < (offset + range); i++) {
+	for (int i = offset; i < (offset + range); i++) {
 		if (sample_keys[i] == list[seed]) {
 			return 1;
 		} else {
