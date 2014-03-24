@@ -1,32 +1,25 @@
-/* File:       conj_grad.c
+/* File:       main.c
  * Author:     Vincent Zhang
  *
- * Purpose:    A serial conjugate gradient solver program. Due to time limits,
- *             the MPI parallel version is not included in this source code.
+ * Purpose:    A C program using Pthreads to implement sample sort algorithm.
  *
- * Compile:    gcc -g -Wall -lm -o conj_grad conj_grad.c
- * Run:        conj_grad [order] [tolerance] [iterations] 
- *                       [Optional suppress output(n)] < [file]
+ * Compile:    gcc -g -Wall main -o main.c
+ * Run:        main [number of threads] [sample keys' size] [list size]  
+ *                       [input file] [Optional suppress output(n)]
  *
- * Input:      A file that contains a symmetric, positive definite matrix A,  
- *             and the corresponding right hand side vector B. Preferably, each
- *             line consists of [n] elements and the [n+1] line would be the b.
- * Output:     1. The number of iterations,
- *             2. The time used by the solver (not including I/O),
- *             3. The solution to the linear system (if not suppressed),
- *             4. The norm of the residual calculated by the conjugate gradient 
- *                method, and 
- *             5. The norm of the residual calculated directly from the 
- *                definition of residual.
+ * Input:      A file containing a list of integers separated by white space.
  *
- * Algorithm:  The matrix A's initially read and parsed into an one-dimensional
- *             array; the right hand side vector b is stored in an array as 
- *             well. After some preparation work of allocating memory and 
- *             assigning variables the program jumps into the main loop, the 
- *             conjugate gradient solver. For the exact mathematical procedure,
- *             please refer to http://www.cs.usfca.edu/~peter/cs625/prog2.pdf
- *             and http://en.wikipedia.org/wiki/Conjugate_gradient_method for a
- *             much better demonstration.
+ * Output:     1. The content of the sorted list.
+ *             2. The time used by the solver (not including I/O).
+ *
+ * Algorithm:  The list of integers is read into a global array, each thread
+ *             will then proceed to partition most of the steps during sample 
+ *             sort: locating sample keys, generating splitters, sorting local 
+ *             data blocks, computing the distribution arrays, assigning items 
+ *             to buckets and eventually sorting. For further in-depth details,
+ *             please refer to http://www.cs.usfca.edu/~peter/cs625/prog3.pdf
+ *             and http://en.wikipedia.org/wiki/Samplesort for a much better 
+ *             explanation.
  *
  */
 
@@ -51,11 +44,10 @@ int Int_comp(const void * a,const void * b);
 void *Thread_work(void* rank);
 
 // Global variables
-int i, thread_count, sample_size, list_size;
+int i, thread_count, sample_size, list_size, suppress_output;
 int *list, *sample_keys, *sorted_keys, *splitters, *tmp_list, *sorted_list;
 int *raw_dist, *prefix_dist, *col_dist, *prefix_col_dist;
 char *input_file;
-
 
 
 /*--------------------------------------------------------------------
@@ -291,19 +283,34 @@ void *Thread_work(void* rank) {
   printf("~~~ Thread %ld got here, my_first_D = %d\n", my_rank, my_first_D);
   
   int b_index = 0;
+  // int i_manual = 0;
   // For each thread in the column...
   for (i = 0; i < thread_count; i++) {
 	  // offset = i * local_chunk_size + prefix_dist[i, my_rank-1];
-	  offset = i * local_chunk_size + prefix_dist[i*thread_count + my_rank-1];
-	  for (j = 0; j < raw_dist[i*thread_count + my_rank]; j++) {
-		  printf("### Thread %ld, b_index = %d, elem = %d\n", my_rank, b_index, tmp_list[offset + j]);
-		  my_D[b_index] = tmp_list[offset + j];
-		  b_index++;
+	  // offset = (i_manual * local_chunk_size) + prefix_dist[i*thread_count + my_rank-1];
+	  offset = (i * local_chunk_size) + prefix_dist[i*thread_count + my_rank-1];
+	  if (my_rank == 0) {
+		  printf("@@@ Thread %ld, prefix_dist = %d, i = %d, offset = %d\n", my_rank, prefix_dist[i*thread_count + my_rank-1], i, offset);	  	
 	  }
+	  
+	  if (raw_dist[i*thread_count + my_rank] != 0) {
+		  // If this row doesn't have anything belong to this bucket
+		  // Do not increase i_manual
+		  // i_manual++;
+		  for (j = 0; j < raw_dist[i*thread_count + my_rank]; j++) {
+			  if (my_rank == 0) {
+				  printf("### Thread %ld, raw_index = %d, b_index = %d, offset = %d, j = %d, offset+j = %d, elem = %d\n", my_rank, raw_dist[i*thread_count + my_rank], b_index, offset, j, offset + j, tmp_list[offset + j]);
+			  }
+			  my_D[b_index] = tmp_list[offset + j];
+			  b_index++;
+		  }
+		  
+	  } 
   }
   // Quick sort on local bucket
   qsort(my_D, my_first_D, sizeof(int), Int_comp);
-  Print_list(my_D, my_first_D, "Thread list");
+  // Print_list(my_D, my_first_D, "Thread list");
+  
   
   // Ensure all threads have reached this point, and then let continue
   // pthread_barrier_wait(&barrier);
@@ -311,14 +318,13 @@ void *Thread_work(void* rank) {
   // Merge thread bucket data into final sorted list
   if (my_rank == 0) {
 	  for (i = 0; i < my_first_D; i++) {
-	  printf("~~~ Thread %ld, sorted_list[%d] = %d\n", my_rank, i, my_D[i]);
+	  // printf("~~~ Thread %ld, sorted_list[%d] = %d\n", my_rank, i, my_D[i]);
 		  sorted_list[i] = my_D[i];
 	  }
   } else {
 	  offset = prefix_col_dist[my_rank-1];
 	  for (i = 0; i < my_first_D; i++) {
-		  printf("~~~ Thread %ld, offset = %d, sorted_list[%d] = %d\n", my_rank, offset, offset+i, my_D[i]);
-		  
+		  // printf("~~~ Thread %ld, offset = %d, sorted_list[%d] = %d\n", my_rank, offset, offset+i, my_D[i]);
 		  sorted_list[offset + i] = my_D[i];
 	  }
   }
@@ -334,18 +340,23 @@ int main(int argc, char* argv[]) {
   pthread_t* thread_handles; 
   double start, finish;
 
+  suppress_output == 0;
   // for (int i = 0; i < argc; ++i){
   //   printf("Command line args === argv[%d]: %s\n", i, argv[i]);
   // }  
 
-  if (argc != 5) { 
+  if (argc == 5) { 
+  } else if (argc == 6 && (strcmp(argv[5], "n") == 0)) {
+	  // printf("==== %s\n", argv[5]);
+	  suppress_output = 1;
+  } else {
 	Usage(argv[0]);
-  } else { // TODO: process optional suppress command
-  	thread_count = strtol(argv[1], NULL, 10);
-  	sample_size = strtol(argv[2], NULL, 10);
-  	list_size = strtol(argv[3], NULL, 10);
-  	input_file = argv[4];
   }
+  
+  thread_count = strtol(argv[1], NULL, 10);
+  sample_size = strtol(argv[2], NULL, 10);
+  list_size = strtol(argv[3], NULL, 10);
+  input_file = argv[4];
 
   // Allocate memory for variables
   thread_handles = malloc(thread_count*sizeof(pthread_t));
@@ -396,8 +407,13 @@ int main(int argc, char* argv[]) {
   Print_list(col_dist, thread_count, "Colsum dist");
   Print_list(prefix_col_dist, thread_count, "Prefix colsum dist");
   Print_list(tmp_list, list_size, "Temp list");
-  Print_list(sorted_list, list_size, "Sorted list");
   
+  // Only print list data if not suppressed
+  if (suppress_output == 0) {
+	  Print_list(sorted_list, list_size, "Sorted list");
+  }
+  
+  // Print elapsed time regardless
   printf("Elapsed time = %e seconds\n", finish - start);
 
 
