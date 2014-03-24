@@ -47,6 +47,7 @@ pthread_barrier_t barrier;
 void Usage(char* prog_name);
 void Print_list(int *l, int size, char *name);
 int Is_used(int seed, int offset, int range);
+int Int_comp(const void * a,const void * b);
 void *Thread_work(void* rank);
 
 // Global variables
@@ -75,9 +76,7 @@ void Usage(char* prog_name) {
  * In arg:      l, size, name
  */
 void Print_list(int *l, int size, char *name) {
-    printf("\n======= ");
-    printf("%s", name);
-    printf(" ======= \n");
+    printf("\n======= %s =======\n", name);
     for (i = 0; i < size; i++) {
     	  printf("%d ", l[i]);
     }
@@ -101,6 +100,19 @@ int Is_used(int seed, int offset, int range) {
 	}
 	return 0;
 } /* Is_used */
+
+
+
+/*--------------------------------------------------------------------
+ * Function:    Int_comp
+ * Purpose:     Comparison function for integer, used by qsort
+ * In arg:      a, b
+ */
+int Int_comp(const void * a,const void * b) {
+    int va = *(const int*) a;
+    int vb = *(const int*) b;
+    return (va > vb) - (va < vb);
+}
 
 
 
@@ -152,7 +164,7 @@ void *Thread_work(void* rank) {
 		  } else {
 		  }
 	  }
-	  printf("##### P%ld Got in FINAL, index = %d, mykey = %d, myindex = %d\n", my_rank, i, mykey, myindex);
+	  // printf("##### P%ld Got in FINAL, index = %d, mykey = %d, myindex = %d\n", my_rank, i, mykey, myindex);
 	  sorted_keys[myindex] = mykey;
   }
   
@@ -169,33 +181,22 @@ void *Thread_work(void* rank) {
   // Using block partition to retrieve and sort local chunk
   local_pointer = my_rank * local_chunk_size;
   local_data = malloc(local_chunk_size * sizeof(int));
-  for (i = local_pointer; i < (local_pointer + local_chunk_size); i++) {
-	  j = 0;
+
+  j = 0;
+  for (i = local_pointer; i < (local_pointer + local_chunk_size); i++) {  
 	  local_data[j] = list[i];
 	  j++;
   }
+  // Print_list(local_data, local_chunk_size, "Thread sublist (unsorted)");
+  
+  // Quick sort
+  qsort(local_data, local_chunk_size, sizeof(int), Int_comp);
+  
+  // Print_list(local_data, local_chunk_size, "Thread sublist (sorted)");
   
   
   
-  
-  /*
-  for (i = 0; i < BARRIER_COUNT; i++) {
-     pthread_mutex_lock(&barrier_mutex);
-     barrier_thread_count++;
-     if (barrier_thread_count == thread_count) {
-       barrier_thread_count = 0;
-       pthread_cond_broadcast(&ok_to_proceed);
-     } else {
-       // Wait unlocks mutex and puts thread to sleep.
-       //    Put wait in while loop in case some other
-       // event awakens thread.
-       while (pthread_cond_wait(&ok_to_proceed,
-                 &barrier_mutex) != 0);
-       // Mutex is relocked at this point.
-     }
-     pthread_mutex_unlock(&barrier_mutex);
-  }
-  */
+
   
   
   
