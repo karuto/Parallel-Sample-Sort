@@ -134,32 +134,32 @@ void *Thread_work(void* rank) {
 	  sample_keys[i] = list[seed];
 	  index = offset + i;
 	  // printf("T%ld, seed = %d\n", my_rank, seed);
-	  // printf("T%ld, index = %d, i = %d, key = %d, LCS = %d\n\n", my_rank, index, i, list[seed], local_sample_size);
+	  printf("T%ld, index = %d, i = %d, key = %d, LCS = %d\n\n", my_rank, index, i, list[seed], local_sample_size);
 	
 
   }
   
   // TODO: lock to force syncing
-  /*
+  
   // Parallel count sort the sample keys
   for (i = offset; i < (offset + local_sample_size); i++) {
-	  int mykey = sample_keys[offset + i];
+	  int mykey = sample_keys[i];
 	  int myindex = 0;
 	  for (int j = 0; j < sample_size; j++) {
 		  if (sample_keys[j] < mykey) {
 			  myindex++;
-			  printf("##### Got in MID01, offset = %d, j = %d, mykey = %d, myindex = %d\n", offset, j, mykey, myindex);
-		  } else if (sample_keys[j] == mykey && j < (offset + i)) {
+			  
+		  } else if (sample_keys[j] == mykey && j < i) {
 			  myindex++;
-			  printf("##### Got in MID02, offset = %d, j = %d, mykey = %d, myindex = %d\n", offset, j, mykey, myindex);
+			  
 		  } else {
-			  printf("##### Got in MID03, offset = %d, j = %d, mykey = %d, myindex = %d\n", offset, j, mykey, myindex);
+			  
 		  }
 	  }
-	  printf("##### Got in FINAL, offset = %d, mykey = %d, myindex = %d\n", offset, mykey, myindex);
+	  printf("##### P%ld Got in FINAL, offset = %d, mykey = %d, myindex = %d\n", my_rank, offset, mykey, myindex);
 	  sorted_keys[myindex] = mykey;
   }
-  */
+  
   
   /*
   for (i = 0; i < BARRIER_COUNT; i++) {
