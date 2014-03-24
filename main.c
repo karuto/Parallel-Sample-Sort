@@ -36,13 +36,12 @@
 #include <math.h>
 #include <pthread.h>
 #include "timer.h"
+#include "barrier.h"
 
-#define BARRIER_COUNT 1000
 
 // Synchronization tools
-int barrier_thread_count = 0;
-pthread_mutex_t barrier_mutex;
-pthread_cond_t ok_to_proceed;
+#define BARRIER_COUNT 1000
+pthread_barrier_t barrier;
 
 // Function headers
 void Usage(char* prog_name);
@@ -52,7 +51,7 @@ void *Thread_work(void* rank);
 
 // Global variables
 int i, thread_count, sample_size, list_size;
-int *list, *sample_keys, *sorted_keys;
+int *list, *sample_keys, *sorted_keys, *splitters;
 char *input_file;
 
 
@@ -82,7 +81,7 @@ void Print_list(int *l, int size, char *name) {
     for (i = 0; i < size; i++) {
     	  printf("%d ", l[i]);
     }
-    printf("\n\n");
+    printf("\n");
 }  /* Print_list */
 
 
@@ -114,7 +113,8 @@ int Is_used(int seed, int offset, int range) {
  */
 void *Thread_work(void* rank) {
   long my_rank = (long) rank;
-  int i, seed, index, offset, local_chunk_size, local_sample_size;
+  int i, j, seed, index, offset, local_chunk_size, local_sample_size;
+  int *local_data, local_pointer;
 
   local_chunk_size = list_size / thread_count;
   local_sample_size = sample_size / thread_count;
@@ -133,32 +133,49 @@ void *Thread_work(void* rank) {
 	  // If the loop breaks (while returns 0), data is clean, assignment
 	  sample_keys[i] = list[seed];
 	  index = offset + i;
+	  
 	  // printf("T%ld, seed = %d\n", my_rank, seed);
-	  printf("T%ld, index = %d, i = %d, key = %d, LCS = %d\n\n", my_rank, index, i, list[seed], local_sample_size);
-	
-
+	  // printf("T%ld, index = %d, i = %d, key = %d, LCS = %d\n\n", my_rank, index, i, list[seed], local_sample_size);
   }
   
-  // TODO: lock to force syncing
+  pthread_barrier_wait(&barrier);
   
   // Parallel count sort the sample keys
   for (i = offset; i < (offset + local_sample_size); i++) {
 	  int mykey = sample_keys[i];
 	  int myindex = 0;
-	  for (int j = 0; j < sample_size; j++) {
+	  for (j = 0; j < sample_size; j++) {
 		  if (sample_keys[j] < mykey) {
 			  myindex++;
-			  
 		  } else if (sample_keys[j] == mykey && j < i) {
 			  myindex++;
-			  
 		  } else {
-			  
 		  }
 	  }
-	  printf("##### P%ld Got in FINAL, offset = %d, mykey = %d, myindex = %d\n", my_rank, offset, mykey, myindex);
+	  printf("##### P%ld Got in FINAL, index = %d, mykey = %d, myindex = %d\n", my_rank, i, mykey, myindex);
 	  sorted_keys[myindex] = mykey;
   }
+  
+  pthread_barrier_wait(&barrier);
+  
+  // Besides thread 0, every thread computes a splitter
+  // splitters[0] should always be zero
+  if (my_rank != 0) {
+	  splitters[my_rank] = (sorted_keys[offset] + sorted_keys[offset-1]) / 2;
+  }
+  
+  pthread_barrier_wait(&barrier);
+
+  // Using block partition to retrieve and sort local chunk
+  local_pointer = my_rank * local_chunk_size;
+  local_data = malloc(local_chunk_size * sizeof(int));
+  for (i = local_pointer; i < (local_pointer + local_chunk_size); i++) {
+	  j = 0;
+	  local_data[j] = list[i];
+	  j++;
+  }
+  
+  
   
   
   /*
@@ -183,10 +200,10 @@ void *Thread_work(void* rank) {
   
   
   
+  
 
   return NULL;
 }  /* Thread_work */
-
 
 
 
@@ -214,10 +231,11 @@ int main(int argc, char* argv[]) {
   list = malloc(list_size * sizeof(int));
   sample_keys = malloc(sample_size * sizeof(int));
   sorted_keys = malloc(sample_size * sizeof(int));
-  
+  splitters = malloc((thread_count) * sizeof(int));
 
-  pthread_mutex_init(&barrier_mutex, NULL);
-  pthread_cond_init(&ok_to_proceed, NULL);
+  // pthread_mutex_init(&barrier_mutex, NULL);
+  // pthread_cond_init(&ok_to_proceed, NULL);
+  pthread_barrier_init(&barrier, NULL, thread_count);
   
 
   // Read list content from input
@@ -242,12 +260,15 @@ int main(int argc, char* argv[]) {
   
   Print_list(sample_keys, sample_size, "sample keys (unsorted)");
   Print_list(sorted_keys, sample_size, "sample keys (sorted)");
+  Print_list(splitters, thread_count, "splitters");
   
   // printf("Elapsed time = %e seconds\n", finish - start);
 
 
-  pthread_mutex_destroy(&barrier_mutex);
-  pthread_cond_destroy(&ok_to_proceed);
+  pthread_barrier_destroy(&barrier);
+  // pthread_mutex_destroy(&barrier_mutex);
+  // pthread_cond_destroy(&ok_to_proceed);
+
   free(thread_handles);
   
   return 0;
