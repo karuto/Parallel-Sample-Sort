@@ -52,7 +52,7 @@ void *Thread_work(void* rank);
 
 // Global variables
 int i, thread_count, sample_size, list_size;
-int *list, *sample_keys, *sorted_keys, *splitters, *sorted_list;
+int *list, *sample_keys, *sorted_keys, *splitters, *tmp_list, *sorted_list;
 int *raw_dist, *prefix_dist, *col_dist, *prefix_col_dist;
 char *input_file;
 
@@ -218,6 +218,9 @@ void *Thread_work(void* rank) {
 	  raw_dist[my_segment + s_index-1]++;
   }
   
+  // Ensure all threads have reached this point, and then let continue
+  pthread_barrier_wait(&barrier);
+  
   // Generate prefix sum distribution array 
   // (NOTE: does not need to wait for the whole raw_dist to finish, thus no barrier)
   // For the specific section that this thread is in charge of...
@@ -275,38 +278,50 @@ void *Thread_work(void* rank) {
   
   // Reassemble the partially sorted list, prepare for retrieval
   for (i = 0; i < local_chunk_size; i++) {
-	  sorted_list[local_pointer + i] = local_data[i];
+	  tmp_list[local_pointer + i] = local_data[i];
   }
   
   // Ensure all threads have reached this point, and then let continue
   pthread_barrier_wait(&barrier);
   
   // Reassemble each thread's partially sorted list based on buckets
-  int my_first_D;
-  if (col_sum == 0) {
-	  my_first_D = 0;
-  } else {
-	  my_first_D = prefix_col_dist[my_rank-1];
-  }
+  // Allocate an array based on the column sum of this specific bucket
+  int my_first_D = col_dist[my_rank];
   int *my_D = malloc(my_first_D * sizeof(int));
+  printf("~~~ Thread %ld got here, my_first_D = %d\n", my_rank, my_first_D);
   
   int b_index = 0;
+  // For each thread in the column...
   for (i = 0; i < thread_count; i++) {
 	  // offset = i * local_chunk_size + prefix_dist[i, my_rank-1];
 	  offset = i * local_chunk_size + prefix_dist[i*thread_count + my_rank-1];
 	  for (j = 0; j < raw_dist[i*thread_count + my_rank]; j++) {
-		  my_D[b_index++] = sorted_list[offset + j];
-		  // printf("### Thread %ld, elem = %d\n", my_rank, sorted_list[offset + j]);
+		  printf("### Thread %ld, b_index = %d, elem = %d\n", my_rank, b_index, tmp_list[offset + j]);
+		  my_D[b_index] = tmp_list[offset + j];
+		  b_index++;
 	  }
   }
   // Quick sort on local bucket
   qsort(my_D, my_first_D, sizeof(int), Int_comp);
+  Print_list(my_D, my_first_D, "Thread list");
   
   // Ensure all threads have reached this point, and then let continue
-  pthread_barrier_wait(&barrier);
+  // pthread_barrier_wait(&barrier);
   
-  Print_list(my_D, my_first_D, "Thread (partially sorted)");
-  
+  // Merge thread bucket data into final sorted list
+  if (my_rank == 0) {
+	  for (i = 0; i < my_first_D; i++) {
+	  printf("~~~ Thread %ld, sorted_list[%d] = %d\n", my_rank, i, my_D[i]);
+		  sorted_list[i] = my_D[i];
+	  }
+  } else {
+	  offset = prefix_col_dist[my_rank-1];
+	  for (i = 0; i < my_first_D; i++) {
+		  printf("~~~ Thread %ld, offset = %d, sorted_list[%d] = %d\n", my_rank, offset, offset+i, my_D[i]);
+		  
+		  sorted_list[offset + i] = my_D[i];
+	  }
+  }
   
   return NULL;
 }  /* Thread_work */
@@ -335,6 +350,7 @@ int main(int argc, char* argv[]) {
   // Allocate memory for variables
   thread_handles = malloc(thread_count*sizeof(pthread_t));
   list = malloc(list_size * sizeof(int));
+  tmp_list = malloc(list_size * sizeof(int));
   sorted_list = malloc(list_size * sizeof(int));
   sample_keys = malloc(sample_size * sizeof(int));
   sorted_keys = malloc(sample_size * sizeof(int));
@@ -360,7 +376,6 @@ int main(int argc, char* argv[]) {
       }
   }
   Print_list(list, list_size, "original list");
-  Print_list(raw_dist, thread_count * thread_count, "Raw dist");
   
   GET_TIME(start);
   
@@ -380,9 +395,10 @@ int main(int argc, char* argv[]) {
   Print_list(prefix_dist, thread_count * thread_count, "Prefix dist");
   Print_list(col_dist, thread_count, "Colsum dist");
   Print_list(prefix_col_dist, thread_count, "Prefix colsum dist");
-  Print_list(sorted_list, list_size, "List (partially sorted)");
+  Print_list(tmp_list, list_size, "Temp list");
+  Print_list(sorted_list, list_size, "Sorted list");
   
-  // printf("Elapsed time = %e seconds\n", finish - start);
+  printf("Elapsed time = %e seconds\n", finish - start);
 
 
   pthread_barrier_destroy(&barrier);
