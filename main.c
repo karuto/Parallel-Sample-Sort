@@ -1,0 +1,152 @@
+/* File:       conj_grad.c
+ * Author:     Vincent Zhang
+ *
+ * Purpose:    A serial conjugate gradient solver program. Due to time limits,
+ *             the MPI parallel version is not included in this source code.
+ *
+ * Compile:    gcc -g -Wall -lm -o conj_grad conj_grad.c
+ * Run:        conj_grad [order] [tolerance] [iterations] 
+ *                       [Optional suppress output(n)] < [file]
+ *
+ * Input:      A file that contains a symmetric, positive definite matrix A,  
+ *             and the corresponding right hand side vector B. Preferably, each
+ *             line consists of [n] elements and the [n+1] line would be the b.
+ * Output:     1. The number of iterations,
+ *             2. The time used by the solver (not including I/O),
+ *             3. The solution to the linear system (if not suppressed),
+ *             4. The norm of the residual calculated by the conjugate gradient 
+ *                method, and 
+ *             5. The norm of the residual calculated directly from the 
+ *                definition of residual.
+ *
+ * Algorithm:  The matrix A's initially read and parsed into an one-dimensional
+ *             array; the right hand side vector b is stored in an array as 
+ *             well. After some preparation work of allocating memory and 
+ *             assigning variables the program jumps into the main loop, the 
+ *             conjugate gradient solver. For the exact mathematical procedure,
+ *             please refer to http://www.cs.usfca.edu/~peter/cs625/prog2.pdf
+ *             and http://en.wikipedia.org/wiki/Conjugate_gradient_method for a
+ *             much better demonstration.
+ *
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <pthread.h>
+#include "timer.h"
+
+#define BARRIER_COUNT 1000
+// pthread_barrier_t barrier;
+
+void Usage(char* prog_name);
+void print_list(int *l, int size, char *name);
+void *Thread_work(void* rank);
+
+int thread_count;
+int sample_size;
+int list_size;
+char *input_file;
+
+int *list, *sample_keys;
+
+/*--------------------------------------------------------------------*/
+int main(int argc, char* argv[]) {
+  int i;
+  long thread;
+  pthread_t* thread_handles; 
+  double start, finish;
+
+  for (int i = 0; i < argc; ++i){
+    printf("Command line args === argv[%d]: %s\n", i, argv[i]);
+  }  
+
+  if (argc != 5) { 
+	Usage(argv[0]);
+  } else { // TODO: process optional suppress command
+  	thread_count = strtol(argv[1], NULL, 10);
+  	sample_size = strtol(argv[2], NULL, 10);
+  	list_size = strtol(argv[3], NULL, 10);
+  	input_file = argv[4];
+  }
+
+  thread_handles = malloc(thread_count*sizeof(pthread_t));
+  // pthread_barrier_init(&barrier, NULL, thread_count);
+
+  // Read list from input
+  FILE *fp = fopen(input_file, "r+");
+  list = malloc(list_size * sizeof(int));
+  for (i = 0; i < list_size; i++) {
+  	  if (!fscanf(fp, "%d", &list[i])) {
+    	  break;
+      }
+  }
+
+
+
+  GET_TIME(start);
+  
+  for (thread = 0; thread < thread_count; thread++)
+     pthread_create(&thread_handles[thread], NULL,
+         Thread_work, (void*) thread);
+
+  for (thread = 0; thread < thread_count; thread++) 
+     pthread_join(thread_handles[thread], NULL);
+  
+  GET_TIME(finish);
+  printf("Elapsed time = %e seconds\n", finish - start);
+
+
+  // pthread_barrier_destroy(&barrier);
+  free(thread_handles);
+  return 0;
+}  /* main */
+
+
+/*--------------------------------------------------------------------
+ * Function:    Usage
+ * Purpose:     Print command line for function and terminate
+ * In arg:      prog_name
+ */
+void Usage(char* prog_name) {
+
+  fprintf(stderr, "Usage: %s [number of threads] [sample size] [list size] [name of input file] [Optional suppress output(n)]\n", prog_name);
+  exit(0);
+}  /* Usage */
+
+void print_list(int *l, int size, char *name) {
+    printf("\n==== ");
+    printf("&s", name);
+    printf(" ==== \n");
+    for (i = 0; i < size; i++) {
+    	  printf("%d ", list[i]);
+    }
+    printf("\n\n");
+}  /* print_list */
+
+/*-------------------------------------------------------------------
+ * Function:    Thread_work
+ * Purpose:     Run BARRIER_COUNT barriers
+ * In arg:      rank
+ * Global var:  barrier
+ * Return val:  Ignored
+ */
+void *Thread_work(void* rank) {
+// long my_rank = (long) rank; 
+  int i;
+
+  for (i = 0; i < BARRIER_COUNT; i++) {
+    // pthread_barrier_wait(&barrier);
+  }
+   
+  printf("Hi this is %d\n", 1);
+
+  return NULL;
+}  /* Thread_work */
+
+
+
+
+
+
