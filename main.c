@@ -84,6 +84,7 @@ int main(int argc, char* argv[]) {
       }
   }
   Print_list(list, list_size, "original list");
+  Print_list(sample_keys, sample_size, "sample keys");
   
   GET_TIME(start);
   
@@ -95,7 +96,10 @@ int main(int argc, char* argv[]) {
      pthread_join(thread_handles[thread], NULL);
   
   GET_TIME(finish);
-  printf("Elapsed time = %e seconds\n", finish - start);
+  
+  Print_list(sample_keys, sample_size, "sample keys");
+  
+  // printf("Elapsed time = %e seconds\n", finish - start);
 
 
   // pthread_barrier_destroy(&barrier);
@@ -128,7 +132,7 @@ void Print_list(int *l, int size, char *name) {
     printf("%s", name);
     printf(" ======= \n");
     for (i = 0; i < size; i++) {
-    	  printf("%d ", list[i]);
+    	  printf("%d ", l[i]);
     }
     printf("\n\n");
 }  /* Print_list */
@@ -144,7 +148,7 @@ void Print_list(int *l, int size, char *name) {
  */
 void *Thread_work(void* rank) {
   long my_rank = (long) rank;
-  int i, seed, local_chunk_size, local_sample_size;
+  int i, seed, index, local_chunk_size, local_sample_size;
 
   local_chunk_size = list_size / thread_count;
   local_sample_size = sample_size / thread_count;
@@ -154,8 +158,10 @@ void *Thread_work(void* rank) {
   // Get sample keys randomly from original list
   srandom(my_rank + 1);  
   for (i = 0; i < local_sample_size; i++) {
+	index = my_rank * local_sample_size + i;
 	seed = (my_rank * local_chunk_size) + (random() % local_chunk_size);
-  	printf("Random of thread %ld = %d\n", my_rank, seed);
+  	printf("Thread %ld, index = %d, key = %d\n", my_rank, index, list[seed]);
+	sample_keys[index] = list[seed];
   }
   
 
