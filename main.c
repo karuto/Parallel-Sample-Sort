@@ -51,7 +51,7 @@ void *Thread_work(void* rank);
 
 // Global variables
 int i, thread_count, sample_size, list_size;
-int *list, *sample_keys;
+int *list, *sample_keys, *sorted_keys;
 char *input_file;
 
 /*--------------------------------------------------------------------*/
@@ -77,6 +77,7 @@ int main(int argc, char* argv[]) {
   thread_handles = malloc(thread_count*sizeof(pthread_t));
   list = malloc(list_size * sizeof(int));
   sample_keys = malloc(sample_size * sizeof(int));
+  sorted_keys = malloc(sample_size * sizeof(int));
   
 
   pthread_mutex_init(&barrier_mutex, NULL);
@@ -104,7 +105,8 @@ int main(int argc, char* argv[]) {
   
   GET_TIME(finish);
   
-  Print_list(sample_keys, sample_size, "sample keys");
+  Print_list(sample_keys, sample_size, "sample keys (unsorted)");
+  Print_list(sorted_keys, sample_size, "sample keys (sorted)");
   
   // printf("Elapsed time = %e seconds\n", finish - start);
 
@@ -157,28 +159,31 @@ void Print_list(int *l, int size, char *name) {
  */
 void *Thread_work(void* rank) {
   long my_rank = (long) rank;
-  int i, seed, dup, index, local_chunk_size, local_sample_size;
+  int i, m, seed, dup, index, offset, local_chunk_size, local_sample_size;
 
   local_chunk_size = list_size / thread_count;
   local_sample_size = sample_size / thread_count;
   
-  printf("Hi this is thread %ld, I have %d chunks and should do %d samples. \n", my_rank, local_chunk_size, local_sample_size);
+  // printf("Hi this is thread %ld, I have %d chunks and should do %d samples. \n", my_rank, local_chunk_size, local_sample_size);
   
   // Get sample keys randomly from original list
   srandom(my_rank + 1);  
+  offset = my_rank * local_sample_size;
   
   for (i = 0; i < local_sample_size; i++) {
-	index = my_rank * local_sample_size + i;
+	index = offset + i;
 	seed = (my_rank * local_chunk_size) + (random() % local_chunk_size);
-  	printf("Thread %ld, index = %d, key = %d\n", my_rank, index, list[seed]);
+	printf("T%ld, seed = %d\n", my_rank, seed);
+  	printf("T%ld, index = %d, i = %d, key = %d, LCS = %d\n\n", my_rank, index, i, list[seed], local_sample_size);
 	
 	dup = 0;
 	// Make sure this sample key is not already in the list
-	for (int i = 0; i < local_sample_size; i++) {
-		if (sample_keys[index+i] == list[seed]) {
+	for (m = 0; m < local_sample_size; m++) {
+		if (sample_keys[index+m] == list[seed]) {
 			// If it already exists in [my section of] sample keys...
-			// decrease the counter and start over
-			i--;
+			// at this round we must pick a new seed
+			seed = (my_rank * local_chunk_size) + (random() % local_chunk_size);
+			printf("T%ld, seed = %d [RESET]\n", my_rank, seed);
 			dup = 1;
 		}
 	}
@@ -186,12 +191,29 @@ void *Thread_work(void* rank) {
 	if (dup != 1) {
 	    sample_keys[index] = list[seed];
 	}
-	
   }
   
+  // TODO: lock to force syncing
+  /*
   // Parallel count sort the sample keys
-  
-  
+  for (i = 0; i < local_sample_size; i++) {
+	  int mykey = sample_keys[offset + i];
+	  int myindex = 0;
+	  for (int j = 0; j < sample_size; j++) {
+		  if (sample_keys[j] < mykey) {
+			  myindex++;
+			  printf("##### Got in MID01, offset = %d, j = %d, mykey = %d, myindex = %d\n", offset, j, mykey, myindex);
+		  } else if (sample_keys[j] == mykey && j < (offset + i)) {
+			  myindex++;
+			  printf("##### Got in MID02, offset = %d, j = %d, mykey = %d, myindex = %d\n", offset, j, mykey, myindex);
+		  } else {
+			  printf("##### Got in MID03, offset = %d, j = %d, mykey = %d, myindex = %d\n", offset, j, mykey, myindex);
+		  }
+	  }
+	  printf("##### Got in FINAL, offset = %d, mykey = %d, myindex = %d\n", offset, mykey, myindex);
+	  sorted_keys[myindex] = mykey;
+  }
+  */
   
   /*
   for (i = 0; i < BARRIER_COUNT; i++) {
